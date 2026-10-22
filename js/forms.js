@@ -539,9 +539,218 @@
     ],
   };
 
-  window.FORMS = [vfBestaand, vfNieuwbouw, kpn];
+
+  // ---------- Odido – V&G-plan Monet (klassieke Word-formuliervelden, genummerd in documentvolgorde) ----------
+  const FT = (label, i, o = {}) => ({ id: `ff${i}`, label, type: 'text', ff: i, ...o });
+  const FA = (label, i, o = {}) => FT(label, i, { type: 'area', rows: 3, ...o });
+  const FC = (label, i, o = {}) => ({ id: `ff${i}`, label, type: 'check', ff: i, ...o });
+  const FCH = (label, opts, o = {}) => ({ id: `ffch${opts[0][1]}`, label, type: 'choice', legacy: true, opts, ...o });
+  // Risico met vinkje 'van toepassing', maatregel/opmerking en eventueel een eigen omschrijving
+  const RISK = (label, cb, text, name) => ({
+    group: true,
+    title: label,
+    fields: [
+      FC(`${label} – van toepassing`, cb, { short: 'Van toepassing' }),
+      ...(name != null ? [FT(`${label} – omschrijving`, name, { short: 'Omschrijving' })] : []),
+      ...(text != null ? [FA(`${label} – maatregel / opmerking`, text, { short: 'Maatregel / opmerking' })] : []),
+    ],
+  });
+  const FGRID = (title, cols, rowDefs, o = {}) => ({
+    grid: true, title, hint: o.hint, cols,
+    rows: rowDefs.map(([label, ids]) => ({
+      label,
+      fields: ids.map((n, k) => (n == null ? null : (o.checks && o.checks.includes(k)
+        ? FC(`${title} – ${label} – ${cols[k]}`, n, { short: cols[k] })
+        : FT(`${title} – ${label} – ${cols[k]}`, n, { short: cols[k], type: o.dates && o.dates.includes(k) ? 'date' : 'text', inputmode: o.modes && o.modes[k] })))),
+    })),
+  });
+  const seq = (start, n, step = 1) => Array.from({ length: n }, (_, k) => start + k * step);
+  const CONTACT_ROWS = ['Company name', 'Visiting address', 'Postal address', 'Postcode', 'Town', 'Phone general', 'Contact', 'Phone contact',
+    'E-mail contact', 'Supervisor', 'Phone supervisor', 'Direct supervisor', 'Phone direct supervisor', 'H&S official', 'Phone H&S official'];
+  const contactGrid = (title, cols, start, hint) => FGRID(title, cols, CONTACT_ROWS.map((l, k) => [l, seq(start + k * 3, 3)]),
+    { hint, modes: [] });
+
+  const odido = {
+    id: 'odido-vg',
+    klant: 'odido',
+    title: 'V&G-plan Monet – Rooftop',
+    subtitle: 'Odido · Monet 6.2.1 (ENG) · No Subco',
+    kind: 'docx',
+    template: 'templates/odido-vg-plan-monet-6.2.1-rooftop.docx',
+    fileName: (v) => `VG-plan Monet 6.2.1 ODIDO - Rooftop${v.ff0 ? ' - ' + v.ff0 : ''}${v.ff82 ? ' ' + v.ff82 : ''}.docx`,
+    titleField: 'ff0',
+    defaults: { ff3: 'ODIDO' },
+    emptyValues: ['dd-mm-yy'],
+    detect: (doc) => doc.legacy.some((f, i) => doc.legacyName(i) === 'PROVIDOR') && doc.legacy.some((f, i) => doc.legacyName(i) === 'SITE_NR'),
+    sections: [
+      { title: 'Project information', items: [
+        FT('Site number', 0), FT('Location number or x/y coordinates', 1), FT('Order number', 2), FT('Provider', 3),
+        FT('Version number', 4, { inputmode: 'numeric' }), FT('Date', 5, { type: 'date' }), FT('Status', 6, { dropdown: true }),
+      ] },
+      { title: 'Version management', items: [
+        FGRID('Versions', ['Drafted by', 'Date', 'Changes'], seq(0, 6).map((v) => [`Version ${v}`, seq(7 + v * 3, 3)]), { dates: [1] }),
+      ] },
+      { title: 'Validation and distribution', hint: 'A = accepted · AV = accepted but subject to remarks · NA = not accepted, resubmit, see remarks.', items: [
+        FGRID('Validation', ['Party', 'Name', 'Function', 'A', 'AV', 'NA', 'Initialled', 'Remarks'],
+          seq(0, 7).map((k) => [`Regel ${k + 1}`, seq(25 + k * 8, 8)]), { checks: [3, 4, 5] }),
+      ] },
+      { title: 'General information', items: [
+        FT('Address', 81), FT('Town', 82), FT('Company name (landlord)', 83),
+        FCH('Type of work / structure', [['New construction', 84], ['Modification', 85], ['Management and maintenance', 86]], { multi: true }),
+        FCH('Type location', [['Flat roof', 87], ['Antenna pole', 88], ['Silo', 89], ['Windmill', 90], ['Church tower', 91], ['Chimney', 92],
+          ['High Voltage Pylon (HVP)', 93], ['High Voltage Tower', 94], ['High Voltage Station', 95], ['Indoor', 96], ['Billboard', 97], ['Other', 98]], { multi: true }),
+        FT('Type location – other, specify', 99),
+        FT('Start of work', 100, { type: 'date' }), FT('Scheduled end of work', 101, { type: 'date' }),
+        FA('Type of work (describe activities)', 102, { rows: 5, hint: 'For TenneT describe activities day by day.' }),
+      ] },
+      { title: 'Introduction training', hint: 'Iedereen krijgt vóór de start van het werk elke dag een startwerkinstructie met dit formulier.', items: [
+        FT('Date', 105, { type: 'date' }), FT('Trainer', 107),
+        FCH('Kopie naar', [['Project supervisor', 103], ['Direct supervisor', 104], ['H&S official', 106], ['Principal (if arranged)', 108]], { multi: true }),
+        FGRID('Attendants introduction training', ['Date', 'Name', 'Company'], seq(0, 24).map((k) => [`${k + 1}`, seq(109 + k * 3, 3)]), { dates: [0] }),
+      ] },
+      { title: '3.1 Discussed topics', hint: 'Alle aangevinkte onderwerpen moeten besproken zijn.', items: [
+        RISK('Safe access to the location / site specific risks (see Site RI&E)', 181, 182),
+        RISK('Availability Safety Regulations for working at KPN, T-Mobile, Tele2 and Vodafone locations', 183, 184),
+        RISK('Safety passports / training ok? (AFAS Pocket app)', 185, 186),
+        RISK('Required personal protection equipment', 187, 188),
+        RISK('Additional personal protection equipment', 189, 190),
+        RISK('On-site emergency services (first aid)', 191, 192),
+        RISK('Regulations regarding smoking, alcohol, drugs and medications', 193, 195),
+        FA('Smoking, alcohol, drugs – rules', 194),
+        RISK('Appointments sanitation (toilet, hygiene)', 196, 197),
+        RISK('Order and cleanliness', 198, 199),
+        RISK('Slips, trips, falls', 200, 201),
+        RISK('Shock hazard to low or high constructions', 202, 203),
+        RISK('Safe storage and use of hazardous substances', 204, 205),
+        RISK('Separate collection of waste', 206, 207),
+        RISK('Prevent environmental pollution and damage to flora and/or fauna', 208, 209),
+      ] },
+      { title: '3.2 Specific risks landlord', items: [
+        RISK('Work on/near a high voltage installation (see 3.3)', 210),
+        RISK('Special access procedures', 211, 212),
+        RISK('Work permits', 213, 214),
+        RISK('Cellnex towers (specific measures applicable)', 215, 216),
+        RISK('Work along the road', 217, 218),
+        RISK('Work along the track/railroad (training + ProRail access pass)', 219, 220),
+        RISK('Extra risico 1', 221, 223, 222),
+        RISK('Extra risico 2', 224, 226, 225),
+        RISK('Held toolbox meeting(s) (specific risks)', 227, 228),
+        FA('Remarks', 229),
+      ] },
+      { title: '3.3 Working on/nearby high voltage installations', items: [
+        FC('Working near high voltage, electrocution hazard (supervision NEN3840)', 230),
+        FC('Climbing a high voltage power pole (HVP) or tower', 231),
+        FC('Working on a HVP or HV substation and/or installation of mast reinforcements', 232),
+        FC('Performing telecom operations near power lines', 233),
+        FC('Working with a cherry-picker on or near a HV pylon or power line', 234),
+        FC('Working with a crane with workplatform on or near a HV pylon or power line', 235),
+        FC('Hoist with a mobile crane on or near a HV pylon or power line', 236),
+        FC('Hoist with a hoisting winch on or near a HV pylon or power line', 237),
+        FC('Hoist manually in the pole body at or near a HV pylon or power line', 238),
+      ] },
+      { title: '3.4 Working at heights', items: [
+        RISK('1. Within two meters from the eaves', 239, 240),
+        RISK('2. Working in the 2–4 meter zone', 241, 242),
+        RISK('3. Roof slope in excess of > 15°', 243, 244),
+        RISK('4. Initial installation of fall protection equipment', 245, 246),
+        RISK('5. Installation of cable ducts', 247, 248),
+        RISK('6. Installation of earth leads', 249, 250),
+        RISK('7. Installation of antenna pole, antennas, feeders etc.', 251, 252),
+        RISK('8. Risk of falling objects', 253, 254),
+        RISK('9. Working from a (landing) staircase / ladder', 255, 256),
+        RISK('10. Working with (rolling) scaffolding', 257, 258),
+        RISK('11. Rope access (working from safety lines)', 259, 260),
+        RISK('Other', 261, 263, 262),
+        FA('Remarks', 264),
+      ] },
+      { title: '3.5 Horizontal and vertical transport', items: [
+        RISK('1. Hoisting with mobile crane (materials)', 265, 267),
+        RISK('2. Working from a crane with workplatform', 268, 269),
+        RISK('3. Hoisting with a winch', 270, 271),
+        RISK('4. Hoisting manually', 272, 273),
+        RISK('5. Working with a cherry picker', 274, 275),
+        RISK('6. Attaching loads, using eyebolts and other lifting equipment', 276, 277),
+        RISK('Other', 278, 279),
+        FA('Remark (work in accordance with Arbo catalogue “Vertical transport”)', 280),
+      ] },
+      { title: '3.6 Physical factors', items: [
+        RISK('1. Working near live electrical components', 281, 282),
+        RISK('2. Electromagnetic fields (EMF) exposure', 283, 284),
+        RISK('3. Lasers (optical links) > class 1M', 285, 286),
+        RISK('4. Noise (church bells, machinery, drilling)', 287, 288),
+        RISK('5. Inadequate lighting workstation', 289, 290),
+        RISK('6. Injury when using power tools', 291, 292),
+        RISK('7. Cold / heat stress', 293, 294),
+        RISK('Other', 295, 297, 296),
+        FA('Remarks', 298),
+      ] },
+      { title: '3.7 Hazardous materials', items: [
+        RISK('1. Handling and storing hazardous materials', 299, 300),
+        RISK('2. Industrial products (near workstation)', 301, 302),
+        RISK('3. Flue gasses (near workstation)', 303, 304),
+        RISK('4. Exposure to particulate matter (quartz, hardwood)', 305, 306),
+        RISK('5. Risk of exposure to asbestos', 307, 308),
+        RISK('6. Fibrous materials (glass wool, rock wool)', 309, 310),
+        RISK('7. Opening and closing cable conduits', 311, 312),
+        RISK('8. Risk of exposure to polluted soil', 313, 314),
+        RISK('Other', 315, 317, 316),
+        FA('Remarks', 318),
+      ] },
+      { title: '3.8 Biological agents', items: [
+        RISK('1. Legionella', 319, 320),
+        RISK('2. Animal droppings (rats, pigeons)', 321, 322),
+        RISK('3. Insects (ticks, processionary caterpillar, wasps’ nests)', 323, 324),
+        RISK('4. Irritant plants (giant hogweed)', 325, 326),
+        RISK('5. Biological matters (near workstation)', 327, 328),
+        RISK('Other', 329, 331, 330),
+        FA('Remarks', 332),
+      ] },
+      { title: '3.9 Physical strain', items: [
+        RISK('1. Climbing (e.g. double hooks)', 333, 334),
+        RISK('2. Manually moving heavy objects', 335, 336),
+        RISK('Other', 337, 339, 338),
+        FA('Remarks', 340),
+      ] },
+      { title: '3.10 Environmental hazards', items: [
+        RISK('1. Excavation work (CROW 500)', 341, 342),
+        RISK('2. Working in confined space', 343, 344),
+        RISK('3. Little movement at the workstation', 345, 346),
+        RISK('4. Working in the engine room of a lift', 347, 348),
+        RISK('5. Risk of fire, explosion (ATEX)', 349, 350),
+        RISK('6. Work near or on the water', 351, 352),
+        RISK('Other', 353, 355, 354),
+        FA('Remarks', 356),
+      ] },
+      { title: 'Contact information', hint: '* = verplichte velden. Specifieke V&G-regels en risico’s van de landlord opvragen bij de contactpersoon.', items: [
+        contactGrid('Principal / contractor / landlord', ['Principal', 'Contractor', 'Landlord / company'], 357),
+      ] },
+      { title: 'Onderaannemers', hint: 'Alleen invullen als er onderaannemers of nevenaannemers zijn.', items: [
+        contactGrid('Onderaannemers 1–3', ['Onderaannemer 1', 'Onderaannemer 2', 'Onderaannemer 3'], 402),
+        contactGrid('Onderaannemers 4–5 en nevenaannemer', ['Onderaannemer 4', 'Onderaannemer 5', 'Nevenaannemer'], 447),
+      ] },
+      { title: 'H&S coordinators main contractor', items: [
+        FGRID('H&S coordinators', ['Name', 'Phone', 'E-mail'], [
+          ['V&G coördinator ontwerp', seq(492, 3)], ['Vervanger (optie)', seq(495, 3)], ['V&G coördinator uitvoering', seq(498, 3)],
+          ['Vervanger (optie)', seq(501, 3)], ['Werkverantwoordelijke (WV)', seq(504, 3)],
+        ], { modes: [undefined, 'tel', 'email'] }),
+      ] },
+      { title: 'Project organisation', hint: 'Extra vakken in het organogram. De meeste namen worden automatisch overgenomen uit de contactgegevens.', items: [
+        FT('Secondary contractor(s)', 507),
+        FT('Onder onderaannemer 2', 508), FT('Onder onderaannemer 3', 509), FT('Onder onderaannemer 4', 510), FT('Onder onderaannemer 5', 511),
+        FT('H&S coordinator (onderaannemer)', 512), FT('Supervisor op locatie (onderaannemer)', 513),
+        FT('Onder V&G coördinator uitvoering', 514), FT('Onder leidinggevende op locatie', 515), FT('Mechanics', 516),
+      ] },
+      { title: 'On-site emergencies', items: [
+        FT('On-site emergency services (BHV) alarm number', 517, { inputmode: 'tel' }),
+        FGRID('Medische hulp', ['Name', 'Phone (+31)', 'Address'], [['Local hospital', [518, 519, 520]], ['Local doctor', [521, 522, 523]]], { modes: [undefined, 'tel'] }),
+      ] },
+    ],
+  };
+
+  window.FORMS = [vfBestaand, vfNieuwbouw, kpn, odido];
   window.CLIENTS = [
     { id: 'vodafone', name: 'Vodafone', desc: 'TSS Report 4.20 (Excel)', forms: ['vf-bestaand', 'vf-nieuwbouw'] },
     { id: 'kpn', name: 'KPN', desc: 'RCT rapport – Nieuwbouw daklocatie (Word)', forms: ['kpn-dak'] },
+    { id: 'odido', name: 'Odido', desc: 'V&G-plan Monet 6.2.1 – Rooftop (Word)', forms: ['odido-vg'] },
   ];
 })();

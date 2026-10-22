@@ -66,16 +66,17 @@
   })();
 
   // ---------- formulieren voorbereiden ----------
-  function allFields(form) {
-    const out = [];
-    for (const sec of form.sections) {
-      for (const it of sec.items) {
-        if (it.grid) it.rows.forEach((r) => r.fields.forEach((f) => f && out.push(f)));
-        else out.push(it);
-      }
-    }
-    return out;
+  function itemFields(it) {
+    if (it.grid) return it.rows.flatMap((r) => r.fields.filter(Boolean));
+    if (it.group) return it.fields;
+    return [it];
   }
+
+  function allFields(form) {
+    return form.sections.flatMap((sec) => sec.items.flatMap(itemFields));
+  }
+
+  const clientName = (form) => (CLIENTS.find((c) => c.id === form.klant) || {}).name || form.klant;
 
   const templateCache = {};
   function loadTemplate(form) {
@@ -105,6 +106,9 @@
         const cp = doc.cellParas(f.p[0], f.p[1], f.p[2]);
         const para = cp && cp.paras[f.p[3]];
         f.ph = para ? doc.paraText(para) : '';
+      } else if (f.ff != null) {
+        if (!doc.legacy[f.ff]) throw new Error(`Veld ${f.ff} niet gevonden in sjabloon ${form.template}`);
+        if (f.dropdown) f.options = doc.legacyOptions(f.ff);
       }
     }
     const defaults = await readValues(form, doc);
@@ -151,6 +155,10 @@
           if (f.type === 'date' && r.numeric && /^\d+(\.\d+)?$/.test(val)) val = serialToDate(parseFloat(val));
           v[f.id] = val;
         }
+      } else if (f.ff != null) {
+        v[f.id] = readLegacy(form, doc, f);
+      } else if (f.type === 'choice' && f.legacy) {
+        v[f.id] = f.opts.filter(([, n]) => doc.legacyCheck(n)).map(([l]) => l);
       } else if (f.type === 'check') {
         v[f.id] = doc.getCheck(f.cb);
       } else if (f.type === 'choice') {
@@ -170,6 +178,14 @@
       }
     }
     return v;
+  }
+
+  function readLegacy(form, doc, f) {
+    if (f.type === 'check') return doc.legacyCheck(f.ff);
+    if (f.dropdown) return doc.legacyDropdown(f.ff);
+    let t = doc.legacyText(f.ff).replace(/[\u2002\u00a0]/g, ' ').replace(/[ \t]+\n/g, '\n').trim();
+    if ((form.emptyValues || []).includes(t)) t = '';
+    return t;
   }
 
   function wrapLines(text, n, width) {
@@ -204,6 +220,17 @@
         } else {
           await doc.write(form.sheet, f.cell, val == null ? '' : String(val).trim());
         }
+      } else if (f.ff != null) {
+        // Alleen gewijzigde velden aanraken, zodat de opmaak van ongewijzigde tekst behouden blijft
+        const cur = readLegacy(form, doc, f);
+        if (f.type === 'check') { if (cur !== !!val) doc.setLegacyCheck(f.ff, !!val); }
+        else if (f.dropdown) { if (cur !== (val || '')) doc.setLegacyDropdown(f.ff, val || ''); }
+        else if (norm(cur) !== norm(val) || String(cur).split('\n').length !== String(val || '').trim().split('\n').length) {
+          doc.setLegacyText(f.ff, String(val || '').trim());
+        }
+      } else if (f.type === 'choice' && f.legacy) {
+        const sel = Array.isArray(val) ? val : [];
+        for (const [l, n] of f.opts) if (doc.legacyCheck(n) !== sel.includes(l)) doc.setLegacyCheck(n, sel.includes(l));
       } else if (f.type === 'check') {
         doc.setCheck(f.cb, !!val);
       } else if (f.type === 'choice') {
@@ -238,6 +265,7 @@
     const buf = base || (await loadTemplate(form));
     const doc = await openDoc(form, buf);
     await writeValues(form, doc, draft.values);
+    if (doc.updateRefs && doc.refs && doc.refs.length) await doc.updateRefs();
     const blob = await doc.toBlob();
     return { blob, name: sanitizeName(form.fileName(draft.values)) };
   }
@@ -268,12 +296,7 @@
   function sectionStats(sec, values) {
     let total = 0;
     let done = 0;
-    const fields = [];
-    for (const it of sec.items) {
-      if (it.grid) it.rows.forEach((r) => r.fields.forEach((f) => f && fields.push(f)));
-      else fields.push(it);
-    }
-    for (const f of fields) {
+    for (const f of sec.items.flatMap(itemFields)) {
       const s = isFilled(f, values[f.id]);
       if (s === null) continue;
       total++;
@@ -357,7 +380,7 @@
         <p class="eyebrow">Nieuw rapport</p>
         <h1>Voor wie vul je het rapport in?</h1>
       </section>
-      <div class="client-grid">
+      <div class="client-grid three">
         ${CLIENTS.map((c) => `
           <button class="client-card client-${c.id}" data-act="client" data-id="${c.id}">
             <span class="client-logo">${c.id === 'vodafone' ? ICON.xls : ICON.doc}</span>
@@ -369,9 +392,9 @@
       <section class="block">
         <h2>Verder met een bestaand bestand</h2>
         <label class="dropzone" id="dropzone">
-          <input type="file" id="importFile" accept=".xlsx,.docx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+          <input type="file" id="importFile" accept=".xlsx,.docx,.doc,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
           <span class="dz-icon">${ICON.upload}</span>
-          <span><strong>Importeer een (half) ingevulde Excel of Word</strong><br><span class="muted">Het Vodafone TSS-rapport of KPN RCT-rapport. Antwoorden worden ingelezen zodat je verder kunt.</span></span>
+          <span><strong>Importeer een (half) ingevulde Excel of Word</strong><br><span class="muted">Vodafone TSS-rapport, KPN RCT-rapport of Odido V&amp;G-plan. Antwoorden worden ingelezen zodat je verder kunt.</span></span>
         </label>
       </section>
 
@@ -385,7 +408,7 @@
             const st = formStats(form, d.values);
             return `<li class="draft">
               <button class="draft-main" data-act="open-draft" data-id="${d.id}">
-                <span class="draft-badge badge-${form.klant}">${form.klant === 'kpn' ? 'KPN' : 'Vodafone'}</span>
+                <span class="draft-badge badge-${form.klant}">${esc(clientName(form))}</span>
                 <span class="draft-info">
                   <span class="draft-title">${esc(draftTitle(d))}</span>
                   <span class="draft-meta">${esc(form.title)} · ${new Date(d.updated).toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' })}</span>
@@ -441,6 +464,7 @@
         if (form.startEmpty) values[f.id] = f.type === 'check' ? false : f.type === 'choice' ? [] : f.auto ? defaults[f.id] : '';
         else values[f.id] = JSON.parse(JSON.stringify(defaults[f.id] == null ? '' : defaults[f.id]));
       }
+      for (const [k, v] of Object.entries(form.defaults || {})) if (!values[k]) values[k] = v;
       const d = { id: newId(), formId, values, created: Date.now(), updated: Date.now(), hasBase: false };
       drafts.push(d);
       saveDrafts();
@@ -458,6 +482,10 @@
     busy(true, 'Bestand inlezen…');
     try {
       const buf = await file.arrayBuffer();
+      const head = new Uint8Array(buf.slice(0, 4));
+      if (head[0] === 0xd0 && head[1] === 0xcf && head[2] === 0x11 && head[3] === 0xe0) {
+        throw new Error('Dit is een oud .doc/.xls-bestand. Open het in Word of Excel, kies Opslaan als .docx/.xlsx en importeer dat bestand.');
+      }
       const zip = await JSZip.loadAsync(buf.slice(0));
       let form = null;
       let values = null;
@@ -476,7 +504,7 @@
       } else if (zip.file('word/document.xml')) {
         const doc = await DocxFile.load(buf.slice(0));
         form = FORMS.find((f) => f.kind === 'docx' && f.detect(doc));
-        if (!form) throw new Error('Dit Word-bestand lijkt niet op het KPN RCT-rapport.');
+        if (!form) throw new Error('Dit Word-bestand lijkt niet op het KPN RCT-rapport of het Odido V&G-plan.');
         await prepare(form);
         values = await readValues(form, doc);
       } else {
@@ -487,7 +515,7 @@
       d.hasBase = !!(await idb.get('base:' + d.id));
       drafts.push(d);
       saveDrafts();
-      toast(`Ingelezen als ${form.title} (${form.klant === 'kpn' ? 'KPN' : 'Vodafone'}).`);
+      toast(`Ingelezen als ${form.title} (${clientName(form)}).`);
       go('form', { draft: d, section: 0 });
     } catch (e) {
       console.error(e);
@@ -564,6 +592,17 @@
     </div>`;
   }
 
+  function groupBlock(g, values) {
+    const filled = g.fields.some((f) => f.type === 'check' && values[f.id]);
+    return `<div class="field riskblock${filled ? ' on' : ''}" id="blk_${g.fields[0].id}">
+      <div class="risk-head">
+        <span class="label">${esc(g.title)}</span>
+        ${fieldControl(g.fields[0], values[g.fields[0].id], false)}
+      </div>
+      ${g.fields.slice(1).map((f) => `<div class="risk-sub" id="blk_${f.id}"><label class="gmini show" for="f_${f.id}">${esc(f.short || f.label)}</label>${fieldControl(f, values[f.id], false)}</div>`).join('')}
+    </div>`;
+  }
+
   function renderForm() {
     const d = state.draft;
     const form = formById(d.formId);
@@ -577,7 +616,7 @@
     <div class="formbar">
       <div class="formbar-inner">
         <div class="formbar-title">
-          <span class="draft-badge badge-${form.klant}">${form.klant === 'kpn' ? 'KPN' : 'Vodafone'}</span>
+          <span class="draft-badge badge-${form.klant}">${esc(clientName(form))}</span>
           <span class="ft">${esc(form.title)}</span>
           <span class="fsite">${esc(draftTitle(d))}</span>
         </div>
@@ -602,7 +641,7 @@
         <h1 class="sectitle">${esc(sec.title)}</h1>
         ${sec.hint ? `<p class="sechint">${esc(sec.hint)}</p>` : ''}
         <div class="fields">
-          ${sec.items.map((it) => (it.grid ? gridBlock(it, d.values) : fieldBlock(it, d.values))).join('')}
+          ${sec.items.map((it) => (it.grid ? gridBlock(it, d.values) : it.group ? groupBlock(it, d.values) : fieldBlock(it, d.values))).join('')}
         </div>
         <div class="pager">
           ${si > 0 ? `<button class="btn secondary" data-act="section" data-i="${si - 1}">${ICON.back} Vorige</button>` : '<span></span>'}
@@ -677,7 +716,11 @@
   app.addEventListener('change', (e) => {
     const el = e.target;
     if (el.dataset.f) {
-      if (el.type === 'checkbox') setValue(el.dataset.f, el.checked);
+      if (el.type === 'checkbox') {
+        setValue(el.dataset.f, el.checked);
+        const rb = el.closest('.riskblock');
+        if (rb) rb.classList.toggle('on', el.checked);
+      }
       else setValue(el.dataset.f, el.dataset.date ? fromIsoDate(el.value) : el.value);
     } else if (el.dataset.act === 'jump') {
       go('form', { section: parseInt(el.value, 10) });
@@ -767,8 +810,7 @@
     const out = [];
     form.sections.forEach((sec, si) => {
       for (const it of sec.items) {
-        const fs = it.grid ? it.rows.flatMap((r) => r.fields.filter(Boolean)) : [it];
-        for (const f of fs) if (isFilled(f, values[f.id]) === false) out.push({ si, f });
+        for (const f of itemFields(it)) if (isFilled(f, values[f.id]) === false) out.push({ si, f });
       }
     });
     return out;
@@ -860,7 +902,7 @@
     const form = formById(d.formId);
     const to = ($('#mailTo') && $('#mailTo').value.trim()) || '';
     const msg = ($('#mailMsg') && $('#mailMsg').value) || '';
-    const subject = `${form.klant === 'kpn' ? 'KPN RCT rapport' : 'Vodafone TSS report'} – ${draftTitle(d)}`;
+    const subject = `${clientName(form)} ${form.title} – ${draftTitle(d)}`;
     return { to, msg, subject };
   }
 

@@ -72,6 +72,7 @@ h2 { font-family: var(--font-head); font-size: 22px; margin: 0 0 12px; color: va
 /* ---------- klantkaarten ---------- */
 .client-grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
 @media (min-width: 640px) { .client-grid { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 900px) { .client-grid.three { grid-template-columns: repeat(3, 1fr); } }
 .client-card {
   display: flex; align-items: center; gap: 16px; text-align: left;
   background: var(--card); border: 2px solid var(--line); border-radius: var(--radius);
@@ -82,6 +83,7 @@ h2 { font-family: var(--font-head); font-size: 22px; margin: 0 0 12px; color: va
 .client-logo svg { width: 28px; height: 28px; }
 .client-vodafone .client-logo { background: #fde9e9; color: #c8102e; }
 .client-kpn .client-logo { background: #e6f5ec; color: #0b8a3f; }
+.client-odido .client-logo { background: #efe9fb; color: #5b2bb5; }
 .client-text { flex: 1; display: flex; flex-direction: column; }
 .client-name { font-family: var(--font-head); font-size: 24px; font-weight: 700; color: var(--navy); line-height: 1.1; }
 .client-desc { color: var(--muted); font-size: 15px; }
@@ -106,6 +108,7 @@ h2 { font-family: var(--font-head); font-size: 22px; margin: 0 0 12px; color: va
 .draft-badge { flex: none; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 999px; }
 .badge-vodafone { background: #fde9e9; color: #a40d26; }
 .badge-kpn { background: #e6f5ec; color: #08702f; }
+.badge-odido { background: #efe9fb; color: #4a2196; }
 
 .bar { display: block; height: 6px; background: var(--navy-soft); border-radius: 99px; overflow: hidden; }
 .bar span { display: block; height: 100%; background: var(--orange); border-radius: 99px; transition: width 0.3s; }
@@ -244,3 +247,11 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
   .ghost-btn span { display: none; }
   .client-card { padding: 16px; }
 }
+
+/* risico-blokken (Odido V&G-plan) */
+.riskblock .risk-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.riskblock .risk-head .label { margin: 0; padding-top: 8px; }
+.riskblock .risk-sub { margin-top: 10px; }
+.riskblock textarea { min-height: 72px; }
+.riskblock.on { border-left-color: var(--orange); }
+.gmini.show { display: block; }

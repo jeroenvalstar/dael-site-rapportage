@@ -4,6 +4,7 @@ Webapp om op locatie de rapportages voor opdrachtgevers in te vullen:
 
 - **Vodafone** – TSS Report 4.20 (Excel), tabblad *bestaande site* of *nieuwbouw site*
 - **KPN** – RCT rapport Nieuwbouw daklocatie (Word)
+- **Odido** – V&G-plan Monet 6.2.1 (ENG), No Subco, Rooftop (Word met klassieke formuliervelden)
 
 ## Werking
 
@@ -33,7 +34,8 @@ keuzelijsten en beveiliging blijven intact. Er wordt niets naar een server gestu
 ## Nieuwe versie van een formulier
 
 Vervang het bestand in `templates/` (zelfde bestandsnaam) en controleer in `js/forms.js` of de celverwijzingen
-(Excel) of tabel/rij/cel-nummers en selectievakje-nummers (Word) nog kloppen. Verhoog daarna `CACHE` in `sw.js`.
+(Excel) of tabel/rij/cel-nummers en selectievakje-nummers (Word) nog kloppen. Bij het Odido V&G-plan zijn de
+formuliervelden genummerd in documentvolgorde (0 = eerste veld). Oude .doc-bestanden eerst in Word opslaan als .docx. Verhoog daarna `CACHE` in `sw.js`.
 
 ## Lokaal draaien
 

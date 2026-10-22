@@ -240,6 +240,116 @@
 
   // ---------- Word ----------
 
+  // Zoekt alle velden (fldChar begin/separate/end) in documentvolgorde
+  function scanFields(doc) {
+    const ff = [];
+    const refs = [];
+    const stack = [];
+    const runs = Array.from(doc.getElementsByTagNameNS(NS.w, 'r'));
+    for (const r of runs) {
+      let isFieldRun = false;
+      for (let c = r.firstElementChild; c; c = c.nextElementSibling) {
+        if (c.namespaceURI !== NS.w) continue;
+        if (c.localName === 'fldChar') {
+          isFieldRun = true;
+          const type = c.getAttributeNS(NS.w, 'fldCharType');
+          if (type === 'begin') {
+            const f = { ffData: kid(c, NS.w, 'ffData'), instr: '', phase: 'instr', beginRun: r, sepRun: null, result: [], nested: false };
+            if (stack.length) stack[stack.length - 1].nested = true;
+            stack.push(f);
+            if (f.ffData) ff.push(f);
+          } else if (type === 'separate' && stack.length) {
+            const f = stack[stack.length - 1];
+            f.phase = 'result';
+            f.sepRun = r;
+          } else if (type === 'end' && stack.length) {
+            const f = stack.pop();
+            if (!f.ffData) {
+              const m = /^\s*REF\s+(\S+)/.exec(f.instr);
+              if (m) { f.name = m[1]; refs.push(f); }
+            }
+          }
+        } else if (c.localName === 'instrText') {
+          isFieldRun = true;
+          if (stack.length) stack[stack.length - 1].instr += c.textContent;
+        }
+      }
+      if (!isFieldRun && stack.length) {
+        const f = stack[stack.length - 1];
+        if (f.phase === 'result') f.result.push(r);
+      }
+    }
+    return { ff, refs };
+  }
+
+  function closestPara(el) {
+    while (el && !(el.namespaceURI === NS.w && el.localName === 'p')) el = el.parentNode;
+    return el;
+  }
+
+  function runText(r) {
+    let out = '';
+    for (let c = r.firstElementChild; c; c = c.nextElementSibling) {
+      if (c.namespaceURI !== NS.w) continue;
+      if (c.localName === 't') out += c.textContent;
+      else if (c.localName === 'br' || c.localName === 'cr') out += '\n';
+      else if (c.localName === 'tab') out += '\t';
+      else if (c.localName === 'noBreakHyphen') out += '-';
+    }
+    return out;
+  }
+
+  function resultGroups(f) {
+    const groups = [];
+    let last = null;
+    for (const r of f.result) {
+      if (!r.parentNode) continue;
+      const p = closestPara(r);
+      if (p !== last) { groups.push([]); last = p; }
+      groups[groups.length - 1].push(r);
+    }
+    return groups;
+  }
+
+  function fieldResultText(f) {
+    return resultGroups(f).map((g) => g.map(runText).join('')).join('\n');
+  }
+
+  function setRunText(doc, r, text) {
+    for (let c = r.firstElementChild; c; ) {
+      const next = c.nextElementSibling;
+      if (!(c.namespaceURI === NS.w && c.localName === 'rPr')) r.removeChild(c);
+      c = next;
+    }
+    String(text).split('\n').forEach((line, i) => {
+      if (i > 0) r.appendChild(doc.createElementNS(NS.w, 'w:br'));
+      const t = doc.createElementNS(NS.w, 'w:t');
+      t.setAttributeNS(NS.xml, 'xml:space', 'preserve');
+      t.textContent = line;
+      r.appendChild(t);
+    });
+  }
+
+  // Zet de zichtbare tekst van een veld; regels worden over de bestaande alinea's verdeeld
+  function setFieldResult(doc, f, text) {
+    let groups = resultGroups(f);
+    if (!groups.length) {
+      if (!f.sepRun) return;
+      const r = doc.createElementNS(NS.w, 'w:r');
+      const rPr = kid(f.sepRun, NS.w, 'rPr') || kid(f.beginRun, NS.w, 'rPr');
+      if (rPr) r.appendChild(rPr.cloneNode(true));
+      f.sepRun.parentNode.insertBefore(r, f.sepRun.nextSibling);
+      groups = [[r]];
+    }
+    const lines = String(text).split('\n');
+    groups.forEach((g, k) => {
+      const t = k < groups.length - 1 ? lines[k] || '' : lines.slice(k).join('\n');
+      setRunText(doc, g[0], t);
+      for (const r of g.slice(1)) r.parentNode.removeChild(r);
+    });
+    f.result = groups.map((g) => g[0]);
+  }
+
   class DocxFile {
     static async load(data) {
       const zip = await JSZip.loadAsync(data);
@@ -259,6 +369,116 @@
       this.body = this.doc.getElementsByTagNameNS(NS.w, 'body')[0];
       this.tables = kids(this.body, NS.w, 'tbl');
       this.checkboxes = Array.from(this.doc.getElementsByTagNameNS(NS.w14, 'checkbox'));
+      const scan = scanFields(this.doc);
+      this.legacy = scan.ff;
+      this.refs = scan.refs;
+    }
+
+    // ---------- klassieke formuliervelden (FORMTEXT / FORMCHECKBOX / FORMDROPDOWN) ----------
+
+    legacyName(i) {
+      const f = this.legacy[i];
+      const n = f && kid(f.ffData, NS.w, 'name');
+      return n ? n.getAttributeNS(NS.w, 'val') || '' : '';
+    }
+
+    legacyType(i) {
+      const f = this.legacy[i];
+      if (!f) return null;
+      if (kid(f.ffData, NS.w, 'checkBox')) return 'check';
+      if (kid(f.ffData, NS.w, 'ddList')) return 'dropdown';
+      return 'text';
+    }
+
+    legacyText(i) {
+      const f = this.legacy[i];
+      return f ? fieldResultText(f) : '';
+    }
+
+    setLegacyText(i, value) {
+      const f = this.legacy[i];
+      if (!f || f.nested) return;
+      setFieldResult(this.doc, f, value || '\u2002\u2002\u2002\u2002\u2002');
+    }
+
+    legacyCheck(i) {
+      const f = this.legacy[i];
+      const cb = f && kid(f.ffData, NS.w, 'checkBox');
+      if (!cb) return false;
+      const el = kid(cb, NS.w, 'checked') || kid(cb, NS.w, 'default');
+      if (!el) return false;
+      const v = el.getAttributeNS(NS.w, 'val');
+      return !v || v === '1' || v === 'true' || v === 'on';
+    }
+
+    setLegacyCheck(i, on) {
+      const f = this.legacy[i];
+      const cb = f && kid(f.ffData, NS.w, 'checkBox');
+      if (!cb) return;
+      let ch = kid(cb, NS.w, 'checked');
+      if (!ch) {
+        ch = this.doc.createElementNS(NS.w, 'w:checked');
+        cb.appendChild(ch);
+      }
+      ch.setAttributeNS(NS.w, 'w:val', on ? '1' : '0');
+    }
+
+    legacyOptions(i) {
+      const f = this.legacy[i];
+      const dd = f && kid(f.ffData, NS.w, 'ddList');
+      return dd ? kids(dd, NS.w, 'listEntry').map((e) => e.getAttributeNS(NS.w, 'val')) : [];
+    }
+
+    legacyDropdown(i) {
+      const f = this.legacy[i];
+      const dd = f && kid(f.ffData, NS.w, 'ddList');
+      if (!dd) return '';
+      const el = kid(dd, NS.w, 'result') || kid(dd, NS.w, 'default');
+      const idx = el ? parseInt(el.getAttributeNS(NS.w, 'val'), 10) || 0 : 0;
+      return this.legacyOptions(i)[idx] || '';
+    }
+
+    setLegacyDropdown(i, value) {
+      const f = this.legacy[i];
+      const dd = f && kid(f.ffData, NS.w, 'ddList');
+      if (!dd) return;
+      const idx = Math.max(0, this.legacyOptions(i).indexOf(value));
+      let res = kid(dd, NS.w, 'result');
+      if (!res) {
+        res = this.doc.createElementNS(NS.w, 'w:result');
+        dd.insertBefore(res, dd.firstChild);
+      }
+      res.setAttributeNS(NS.w, 'w:val', String(idx));
+    }
+
+    // Verwijzingen (REF-velden, ook in kop- en voetteksten) gelijktrekken met de formuliervelden
+    async updateRefs() {
+      const values = {};
+      this.legacy.forEach((f, i) => {
+        const name = this.legacyName(i);
+        if (name && this.legacyType(i) === 'text' && !f.nested) values[name] = this.legacyText(i);
+      });
+      const apply = (doc, refs) => {
+        let changed = false;
+        for (const r of refs) {
+          if (!(r.name in values) || r.nested) continue;
+          const want = values[r.name] || '\u2002\u2002\u2002\u2002\u2002';
+          if (fieldResultText(r) !== want) {
+            setFieldResult(doc, r, want);
+            changed = true;
+          }
+        }
+        return changed;
+      };
+      apply(this.doc, this.refs);
+      this.extraParts = this.extraParts || {};
+      for (const path of Object.keys(this.zip.files)) {
+        if (!/^word\/(header|footer)\d*\.xml$/.test(path)) continue;
+        const xml = this.extraParts[path] ? null : await this.zip.file(path).async('string');
+        if (xml !== null && !/REF\s/.test(xml)) continue;
+        const doc = this.extraParts[path] || parseXml(xml);
+        if (apply(doc, scanFields(doc).refs)) this.extraParts[path] = doc;
+      }
     }
 
     _cells(tr) {
@@ -387,6 +607,7 @@
 
     async toBlob() {
       this.zip.file('word/document.xml', serializeXml(this.doc));
+      for (const [path, doc] of Object.entries(this.extraParts || {})) this.zip.file(path, serializeXml(doc));
       return this.zip.generateAsync({
         type: 'blob',
         compression: 'DEFLATE',
