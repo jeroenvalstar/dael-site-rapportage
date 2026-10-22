@@ -605,8 +605,104 @@
       }
     }
 
+    // ---------- foto's ----------
+
+    hasDrawing(el) {
+      return el.getElementsByTagNameNS(NS.w, 'drawing').length > 0 || el.getElementsByTagNameNS(NS.w, 'pict').length > 0;
+    }
+
+    // Lege fotovakken in de opgegeven tabellen; voegt kopieën van de laatste tabel toe als er te weinig zijn
+    photoSlots(spec, needed) {
+      const slotsOf = (tbl) => {
+        const rows = kids(tbl, NS.w, 'tr');
+        const out = [];
+        spec.photoRows.forEach((pr, k) => {
+          const prow = rows[pr];
+          const crow = rows[spec.captionRows[k]];
+          if (!prow) return;
+          const pcells = this._cells(prow);
+          const ccells = crow ? this._cells(crow) : [];
+          pcells.forEach((tc, c) => out.push({ tc, cap: ccells[c] || null }));
+        });
+        return out;
+      };
+      const tables = spec.tables.map((t) => this.tables[t]).filter(Boolean);
+      if (!tables.length) return [];
+      let slots = tables.flatMap(slotsOf).filter((s) => !this.hasDrawing(s.tc));
+      let last = tables[tables.length - 1];
+      while (slots.length < needed) {
+        const copy = last.cloneNode(true);
+        for (const d of Array.from(copy.getElementsByTagNameNS(NS.w, 'drawing'))) {
+          const run = d.parentNode;
+          run.parentNode.removeChild(run);
+        }
+        for (const t of Array.from(copy.getElementsByTagNameNS(NS.w, 't'))) t.textContent = '';
+        const spacer = this.doc.createElementNS(NS.w, 'w:p');
+        last.parentNode.insertBefore(spacer, last.nextSibling);
+        spacer.parentNode.insertBefore(copy, spacer.nextSibling);
+        slots = slots.concat(slotsOf(copy));
+        last = copy;
+      }
+      this.tables = kids(this.body, NS.w, 'tbl');
+      return slots;
+    }
+
+    async _loadRels() {
+      if (this.relsDoc) return;
+      this.relsPath = 'word/_rels/document.xml.rels';
+      this.relsDoc = parseXml(await this.zip.file(this.relsPath).async('string'));
+      this.ctDoc = parseXml(await this.zip.file('[Content_Types].xml').async('string'));
+    }
+
+    // Plaatst een JPEG-afbeelding in de eerste alinea van een cel, passend binnen maxW x maxH (twips)
+    async putImage(tc, bytes, pxW, pxH, maxW, maxH, n) {
+      await this._loadRels();
+      const name = `dael-foto-${Date.now().toString(36)}-${n}.jpeg`;
+      this.zip.file('word/media/' + name, bytes);
+      const relId = `rIdDaelFoto${Date.now().toString(36)}${n}`;
+      const rel = this.relsDoc.createElementNS(NS.pr, 'Relationship');
+      rel.setAttribute('Id', relId);
+      rel.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
+      rel.setAttribute('Target', 'media/' + name);
+      this.relsDoc.documentElement.appendChild(rel);
+      const ctRoot = this.ctDoc.documentElement;
+      const hasJpeg = Array.from(ctRoot.getElementsByTagName('Default')).some((d) => (d.getAttribute('Extension') || '').toLowerCase() === 'jpeg');
+      if (!hasJpeg) {
+        const d = this.ctDoc.createElementNS(ctRoot.namespaceURI, 'Default');
+        d.setAttribute('Extension', 'jpeg');
+        d.setAttribute('ContentType', 'image/jpeg');
+        ctRoot.insertBefore(d, ctRoot.firstChild);
+      }
+      const scale = Math.min(maxW / pxW, maxH / pxH);
+      const cx = Math.round(pxW * scale * 635);
+      const cy = Math.round(pxH * scale * 635);
+      const id = 5000 + n;
+      const xml = `<w:r xmlns:w="${NS.w}" xmlns:r="${NS.r}" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="${id}" name="Foto ${n}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${id}" name="${name}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${relId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+      const run = this.doc.importNode(parseXml(xml).documentElement, true);
+      const p = tc.getElementsByTagNameNS(NS.w, 'p')[0];
+      this.setParaText(p, '');
+      let pPr = kid(p, NS.w, 'pPr');
+      if (!pPr) {
+        pPr = this.doc.createElementNS(NS.w, 'w:pPr');
+        p.insertBefore(pPr, p.firstChild);
+      }
+      let jc = kid(pPr, NS.w, 'jc');
+      if (!jc) {
+        jc = this.doc.createElementNS(NS.w, 'w:jc');
+        const rPr = kid(pPr, NS.w, 'rPr');
+        pPr.insertBefore(jc, rPr);
+      }
+      jc.setAttributeNS(NS.w, 'w:val', 'center');
+      p.appendChild(run);
+      this.imagesAdded = true;
+    }
+
     async toBlob() {
       this.zip.file('word/document.xml', serializeXml(this.doc));
+      if (this.imagesAdded) {
+        this.zip.file(this.relsPath, serializeXml(this.relsDoc));
+        this.zip.file('[Content_Types].xml', serializeXml(this.ctDoc));
+      }
       for (const [path, doc] of Object.entries(this.extraParts || {})) this.zip.file(path, serializeXml(doc));
       return this.zip.generateAsync({
         type: 'blob',

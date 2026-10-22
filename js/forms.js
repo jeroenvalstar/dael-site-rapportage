@@ -331,7 +331,7 @@
     template: 'templates/kpn-rct-nieuwbouw-daklocatie.docx',
     fileName: (v) => `RCT rapport - Nieuwbouw daklocatie KPN${v.p0_1_1_0 ? ' - ' + v.p0_1_1_0 : ''}${v.p0_4_1_0 ? ' ' + v.p0_4_1_0 : ''}.docx`,
     titleField: 'p0_1_1_0',
-    detect: (doc) => /Projectnummer/.test(doc.paraText(doc.cellParas(0, 0, 0)?.paras[0] || doc.body)),
+    detect: (doc) => /IPO nummer/.test(doc.paraText(doc.cellParas(0, 2, 0)?.paras[0] || doc.body)),
     sections: [
       { title: '1. Algemene gegevens site', items: [
         P('Projectnummer', 0, 0, 1), P('Site nummer', 0, 1, 1), P('IPO nummer', 0, 2, 1), P('N-PROP nummer', 0, 3, 1),
@@ -747,10 +747,267 @@
     ],
   };
 
-  window.FORMS = [vfBestaand, vfNieuwbouw, kpn, odido];
+  // ---------- Cellnex – TSSR Reworks (zelfde opbouw als KPN: tabel/rij/cel/alinea en selectievakje-nummers) ----------
+  const CX_VEILIGHEID = [
+    [1, 'Valbeveiliging aanwezig'], [2, 'Standaard waarschuwingsborden'], [3, 'Anti-inklimbeveiliging'], [4, 'Söll ladder'],
+    [5, 'Ladder met veiligheidslijn'], [6, 'FABA systeem'], [7, 'Latchways klimbeveiliging'], [8, 'Kooiladder 1'], [9, 'Kooiladder 2'],
+    [10, 'Handgreep'], [11, 'Losse ladder met inhaakbeugel'], [12, 'Veiligheidslijn'], [14, 'Voetpad 60 cm breed met betontegels 60x40 op dragers'],
+    [15, 'Hekwerk'], [17, 'Hekwerk hoogte en tussenliggers afstand'], [18, 'Rood/wit ketting of zwart/geel touw'], [20, 'Additioneel platform'],
+    [21, 'Extra regel 1'], [22, 'Extra regel 2'],
+  ];
+  let cxn = 30;
+  const cxVeiligheidRows = CX_VEILIGHEID.map(([r, label]) => {
+    const noInstall = r === 17; // in deze regel zit geen vakje 'nog te installeren'
+    const row = {
+      label,
+      fields: [
+        CB(`${label} – aanwezig`, cxn, { short: 'Aanwezig' }),
+        P(`${label} – keuring geldig / opmerkingen`, 6, r, 2, 0, { short: 'Keuring geldig / opmerkingen' }),
+        noInstall ? null : CB(`${label} – nog te installeren`, cxn + 1, { short: 'Nog te installeren' }),
+        CB(`${label} – n.v.t.`, noInstall ? cxn + 1 : cxn + 2, { short: 'N.v.t.' }),
+      ],
+    };
+    cxn += noInstall ? 2 : 3;
+    return row;
+  });
+
+  const cellnex = {
+    id: 'cellnex-reworks',
+    klant: 'cellnex',
+    title: 'TSSR – Reworks',
+    subtitle: 'Cellnex · TSS rapport Reworks',
+    kind: 'docx',
+    template: 'templates/cellnex-tssr-reworks.docx',
+    fileName: (v) => `TSSR Reworks Cellnex${v.p0_1_1_0 ? ' - ' + v.p0_1_1_0 : ''}${v.p0_2_1_0 ? ' ' + v.p0_2_1_0 : ''}.docx`,
+    titleField: 'p0_1_1_0',
+    detect: (doc) => /Cellnex/i.test(doc.paraText(doc.cellParas(1, 3, 0)?.paras[0] || doc.body)),
+    sections: [
+      { title: '1. Algemene gegevens site', items: [
+        P('Projectnummer', 0, 0, 1), P('Site nummer', 0, 1, 1), P('Plaatsnaam project', 0, 2, 1), P('Site adres', 0, 3, 1),
+        CH('Site type', [['Dak', 0], ['Mast', 1], ['Kerk', 2], ['Silo', 3], ['Windmolen', 4], ['Schoorsteen', 5]]),
+        P('GPS coördinaten – X / latitude', 0, 5, 1, 0, { inputmode: 'decimal' }), P('GPS coördinaten – Y / longitude', 0, 5, 2, 0, { inputmode: 'decimal' }),
+        P('TSS-datum', 0, 6, 1, 0, { type: 'date' }),
+      ] },
+      { title: '1.1 Aanwezig tijdens TSS', items: [
+        WGRID('Aanwezig', ['Naam', 'Telefoon', 'Paraaf'],
+          ['Landlord / eigenaar', 'DAEL / Site Engineer', 'Cellnex / Odido', 'Althio / KPN', 'Ericsson / Vodafone', 'Engineering partij', 'Aannemer'].map((l, i) => ({
+            label: l,
+            fields: [1, 2, 3].map((c, k) => P(`${l} – ${['naam', 'telefoon', 'paraaf'][k]}`, 1, i + 1, c, 0, { short: ['Naam', 'Telefoon', 'Paraaf'][k], inputmode: c === 2 ? 'tel' : undefined })),
+          }))),
+      ] },
+      { title: '1.2 Landlord informatie', items: [
+        P('Naam', 2, 0, 1), P('Functie', 2, 1, 1), P('Adres', 2, 2, 1), P('E-mail', 2, 3, 1, 0, { inputmode: 'email' }),
+        P('Telefoonnummer', 2, 4, 1, 0, { inputmode: 'tel' }), P('Bedrijf', 2, 5, 1),
+      ] },
+      { title: '1.3 Aannemer informatie', hint: 'Kies een onderaannemer uit de lijst om de gegevens automatisch in te vullen.', items: [
+        P('Bedrijf', 3, 5, 1), P('Naam', 3, 0, 1), P('Functie', 3, 1, 1), P('Adres', 3, 2, 1), P('E-mail', 3, 3, 1, 0, { inputmode: 'email' }),
+        P('Telefoonnummer', 3, 4, 1, 0, { inputmode: 'tel' }),
+      ] },
+      { title: '2.1 Health & Safety (algemeen, voor aanvang TSS)', items: [
+        CH('De gevaren en gedragsregels voor deze site zijn vóór aanvang van de TSS bekend of besproken (site-coördinator heeft centrale rol)', [['Akkoord', 6], ['Niet akkoord', 7], ['Nvt', 8]]),
+        CH("Iedereen heeft de benodigde PBM's mee en draagt ze waar nodig (veiligheidsschoenen verplicht)", [['Akkoord', 9], ['Niet akkoord', 10], ['Nvt', 11]]),
+        CH("Iedereen is geïnformeerd over eventuele EMV-risico's (vooral antennes van Nozema of broadcast partners)", [['Akkoord', 12], ['Niet akkoord', 13], ['Nvt', 14]]),
+        JN('Zijn er personen of verkeer te verwachten rond of op de site tijdens of na de bouw?', 15, 16, { hint: 'Zo ja: extra maatregelen, tijdens werkzaamheden ruim afzetten met lint.' }),
+        JN('Is er kans op een onveilige situatie? (vogels, vogelpoep, stoom, asbest, rook, onbeschermde machines)', 17, 18),
+        P('Onveilige situatie – specificeer', 4, 4, 2, 0, { prefix: 'Specificeer: ' }),
+      ] },
+      { title: '2.2 Toegang', items: [
+        CH('Toegang tot gebouw (omgeving)', [['Belemmeringen geconstateerd', 19], ['Parkeerplaats aanwezig (schets + afmetingen)', 20], ['Parkeerplaats niet aanwezig', 21]], { multi: true }),
+        P('Uitleg belemmeringen', 5, 0, 1, 2),
+        CH('Transport naar site', [['Vrachtwagen', 22], ['Vrachtwagen met kraan', 23], ['Niet toegankelijk met voertuig', 24]], { multi: true, hint: 'Check de aanrijroute voor grote voertuigen i.v.m. viaducten, bruggen etc.' }),
+        CH('Toegang verschaffing tot dak', [['Sleutelkluis', 25], ['Anders', 26]]),
+        P('Toegang dak – anders, namelijk', 5, 2, 1, 2),
+        CH('Locatie kluis', [['Aan hek', 27], ['In de muur', 28], ['Betonnen paaltje', 29]]),
+      ] },
+      { title: '2.2 Toegangsmiddelen naar dak / veiligheidsmiddelen', items: [
+        WGRID('Veiligheidsmiddelen', ['Aanwezig', 'Keuring geldig / opmerkingen', 'Nog te installeren', 'N.v.t.'], cxVeiligheidRows),
+        P('Omschrijving extra regel 1', 6, 21, 0), P('Omschrijving extra regel 2', 6, 22, 0),
+        P('Type veiligheidslijn', 6, 13, 1), P('Hekwerk – hoeveel meters?', 6, 16, 3, 1, { inputmode: 'decimal' }),
+        P('Ketting/touw – hoeveel meters?', 6, 19, 3, 1, { inputmode: 'decimal' }),
+        R('Opmerkingen veiligheidsmiddelen', 6, 23, 0, 1),
+        CH('Lift aanwezig?', [['Aanwezig', 86], ['Niet aanwezig', 87], ['N.v.t.', 88]]),
+        P('Lift – max. toegestane belasting (kg)', 6, 24, 2, 0, { prefix: 'Max toegestane belasting? ', suffix: ' Kg', inputmode: 'decimal' }),
+        P('Lift – afmetingen (L × B × H in m)', 6, 24, 2, 2),
+        CH('Dakluik aanwezig?', [['Aanwezig', 89], ['Niet aanwezig', 90], ['NVT', 91]]),
+        P('Dakluik in veilige zone?', 6, 26, 2, 0, { prefix: 'In veilige zone?  ', options: ['Ja', 'Nee'] }),
+        P('Dakluik – afmetingen (L × B × H in m)', 6, 26, 2, 2),
+        JN('Is er slip-, stoot- en/of struikelgevaar op de route?', 92, 93),
+        P('Slip-/stoot-/struikelgevaar – waar?', 6, 28, 2, 0, { prefix: 'Waar? ' }),
+        R('Opmerkingen toegang', 6, 30, 0, 1),
+      ] },
+      { title: '3. Dakconstructie', items: [
+        CH('Constructie', [['Beton in werk', 94], ['Breedplaat', 95], ['Cellenbeton', 96], ['Staal met plaatmat.', 97], ['Combinatie', 98], ['Staal met hout', 99], ['Hout', 100], ['Kanaalplaat', 101], ['Onbekend / niet duidelijk te zien', 102]], { multi: true, hint: 'Goed kijken of er d.m.v. poeren of losse fundatie geplaatst kan worden.' }),
+        CH('Dakisolatie', [['Ja, wel drukvast', 103], ['Ja, niet drukvast', 104], ['Nee', 105]]),
+        P('Dikte isolatie (i.v.m. hoogte poeren, mm)', 7, 1, 2, 0, { prefix: 'Dikte (i.v.m. hoogte poeren): ', suffix: ' mm', inputmode: 'decimal' }),
+        CH('Plaats dakisolatie', [['Onder dakleer', 106], ['Bovenop (warm dak)', 107]]),
+        CH('Bedekkingsmateriaal', [['Bitumen (APP/SBS)', 108], ['PVC', 109], ['Kunststof', 110], ['Rubber', 111], ['Zink/koper', 112], ['Anders', 113]], { multi: true }),
+        P('Bedekkingsmateriaal – anders, namelijk', 7, 4, 1, 6),
+        CH('Ballast', [['Grind', 114], ['Tegels', 115], ['Looppad(en)', 116], ['Geen', 117]], { multi: true }),
+        R('Opmerkingen', 7, 6, 0, 1),
+      ] },
+      { title: '4. Doorvoeren', items: [
+        CH('Dakdoorvoer nodig?', [['Wendyhouse', 118], ['Wandelstok / zwanenhals', 119], ['N.v.t.', 120]]),
+        JN('Muurdoorvoer nodig? (Roxtec)', 121, 122),
+        JN('Brandvertragend laten afdichten na montage kabels?', 123, 124),
+        JN('Moet er geboord worden?', 125, 126),
+        P('Boren – waarin?', 8, 3, 2, 0, { prefix: 'Waarin? ' }),
+        JN('Is er asbest aanwezig op de locatie van de doorvoer?', 127, 128),
+        P('Asbest – waar?', 8, 5, 2, 0, { prefix: 'Waar? ' }),
+        R('Opmerkingen doorvoeren', 8, 7, 0, 0),
+      ] },
+      { title: '5.1 Apparatuur indoor', items: [
+        P('Locatie / ruimte (verdieping / ruimtenummer)', 9, 0, 1),
+        CH('Toegang naar ruimte (indoor)', [['Sleutel/pasje via landlord', 129], ['Anders', 130]], { hint: 'Schets maken waar apparatuur komt te staan, met afmetingen.' }),
+        P('Toegang ruimte – anders, namelijk', 9, 2, 1, 2),
+        P('Afmetingen ruimte – L', 9, 3, 1, 0, { prefix: 'L: ', inputmode: 'decimal' }),
+        P('Afmetingen ruimte – B', 9, 3, 2, 0, { prefix: 'B: ', inputmode: 'decimal' }),
+        P('Afmetingen ruimte – H', 9, 3, 3, 0, { prefix: 'H: ', inputmode: 'decimal' }),
+        P('RBS-type (indoor)', 9, 4, 1),
+        CH('Koeling', [['Niet aanwezig', 131], ['Nvt', 132], ['Ventilator', 133], ['Airco', 134]], { multi: true }),
+        P('Airco – capaciteit', 9, 6, 2, 0, { prefix: 'Capaciteit: ' }), P('Airco – type', 9, 6, 2, 1, { prefix: 'Type: ' }), P('Airco – merk', 9, 6, 2, 2, { prefix: 'Merk: ' }),
+        R('Opmerkingen (denk aan bv. temperatuur)', 9, 7, 0, 1),
+      ] },
+      { title: '5.2 Apparatuur outdoor', items: [
+        P('RBS-type (outdoor)', 10, 0, 1),
+        JN('Maaiveld: kan en mag er apparatuur binnen bestaand hekwerk bijgeplaatst worden? (aangeven op schets)', 135, 136),
+        P('Uitbreiding opstelplaats RBS – L', 11, 1, 1, 0, { prefix: 'L: ', inputmode: 'decimal' }),
+        P('Uitbreiding opstelplaats RBS – B', 11, 1, 2, 0, { prefix: 'B: ', inputmode: 'decimal' }),
+        P('Hoeveel m² uitbreiding stelconplaten?', 11, 2, 1, 0, { suffix: ' m2', inputmode: 'decimal' }),
+        P('Hoeveel m² uitbreiding bestrating?', 11, 3, 1, 0, { suffix: ' m2', inputmode: 'decimal' }),
+        P('Uitbreiding hekwerk – L', 11, 4, 1, 0, { prefix: 'L: ', inputmode: 'decimal' }),
+        P('Uitbreiding hekwerk – B', 11, 4, 2, 0, { prefix: 'B: ', inputmode: 'decimal' }),
+        P('Uitbreiding hekwerk – H', 11, 4, 3, 0, { prefix: 'H: ', inputmode: 'decimal' }),
+        JN('Hekwerkpoort nodig?', 137, 138),
+        CB('Aanrijpaaltjes nodig? – Nee', 139, { hint: 'Wel nodig? Vul dan hieronder het aantal in.' }),
+        P('Hoeveel aanrijpaaltjes?', 11, 7, 1, 0, { inputmode: 'numeric' }),
+        JN('Dak: kan en mag er apparatuur op de draagconstructie geplaatst worden? (aangeven op schets)', 140, 141),
+        JN('Dak: kan en mag er apparatuur op bestaande constructie (voormalig OLO) geplaatst worden? (schets + constructie inmeten)', 142, 143),
+      ] },
+      { title: '5.3 Tracé', items: [
+        R('Indoor: door welke ruimtes loopt het tracé en hoe is de toegang daarnaartoe?', 13, 0, 0, 1),
+        JN('Indoor: voldoende ruimte in de bestaande kabeldoorvoer?', 144, 145),
+        P('Diameter doorvoer', 13, 2, 1),
+        CH('Type doorvoer', [['Beton', 146], ['Hout', 147], ['Staal', 148], ['Steen', 149], ['Anders', 150]], { multi: true }),
+        CB('Indoor: voldoende ruimte in de bestaande goten – Ja', 151),
+        P('Indoor: hoeveel meter goot aanbrengen?', 13, 5, 1, 0, { suffix: ' m', inputmode: 'decimal' }),
+        P('Indoor: type goot', 13, 5, 2, 0, { prefix: 'Type: ' }),
+        P('Lengte indoor feedertracé (m)', 13, 6, 1, 0, { suffix: ' m', inputmode: 'decimal', hint: 'Teken de route in op de schets.' }),
+        R('Indoor tracé – opmerkingen', 13, 8, 0, 1),
+        R('Outdoor: beknopte beschrijving tracé', 14, 0, 0, 1),
+        P('Outdoor: moeten er nieuwe voorzieningen geplaatst worden? Zo ja, welke?', 14, 1, 1),
+        P('Outdoor: hoeveel meter goot?', 14, 2, 1, 0, { suffix: ' m', inputmode: 'decimal' }),
+        P('Outdoor: type goot', 14, 2, 2, 0, { prefix: 'Type: ' }),
+        ...[1, 2, 3, 4].map((sct) => P(`Lengte outdoor tracé DC/fiber – S${sct} (m)`, 14, 3, 1, sct - 1, { prefix: `S${sct} `, suffix: ' M', inputmode: 'decimal' })),
+      ] },
+      { title: '6. RAL-kleuren', items: [
+        WGRID('RAL-kleuren', ['Van toepassing', 'RAL'], RAL.map((l, i) => ({
+          label: l,
+          fields: [CB(`RAL ${l} – van toepassing`, 152 + i, { short: 'Van toepassing' }), P(`RAL ${l}`, 15, i, 1, 0, { prefix: 'RAL: ', short: 'RAL' })],
+        }))),
+      ] },
+      { title: '7. Kraan / hoogwerker', items: [
+        R('Bijzonderheden', 16, 0, 0, 1),
+        JN('Kraan nodig?', 164, 165),
+        R('Mogelijke opstelplaatsen kraan (indien nodig met landlord bespreken)', 16, 2, 0, 2),
+        JN('Hoogwerker nodig?', 166, 167),
+        R('Mogelijke opstelplaatsen hoogwerker (indien nodig met landlord bespreken)', 16, 4, 0, 2),
+        JN('Survey uitvoeren', 168, 169),
+        JN('Rijplaten benodigd?', 170, 171),
+        P('Rijplaten – lengte tracé (m)', 16, 6, 1, 1, { prefix: 'Lengte tracé: ', suffix: ' m', inputmode: 'decimal' }),
+        JN('Toegang naar site mogelijk met kraan/hoogwerker?', 172, 173),
+        JN('Inschatting: vergunning nodig?', 174, 175),
+        JN('Verkeersregelaars nodig?', 176, 177),
+        JN('Wegafzetting nodig?', 178, 179),
+      ] },
+      { title: '8. Elektravoorziening', items: [
+        CH('Aansluiting', [['Eigen E-aansluiting', 180], ['Via tussenmeter van landlord', 181]]),
+        R('Locatie K1 of tussenmeter landlord (aangeven op tekening/plattegrond en/of ruimtenummer)', 17, 1, 0, 1),
+        CH('Uitvoering elektrawerkzaamheden', [['Huisaannemer', 182], ['DAEL', 183]]),
+        P('Huisaannemer elektra – bedrijf', 19, 2, 1), P('Huisaannemer elektra – naam contactpersoon', 19, 1, 1),
+        P('Huisaannemer elektra – e-mail', 19, 3, 1, 0, { inputmode: 'email' }), P('Huisaannemer elektra – telefoonnummer', 19, 4, 1, 0, { inputmode: 'tel' }),
+        R('Huisaannemer elektra – opmerkingen', 19, 5, 0, 1),
+        CH('8.1 Outdoor: van wie is het terrein?', [['Gemeente', 184], ['Privé', 185], ['Anders', 186]], { hint: 'Denk eraan: energiebedrijf graaft niet over privéterrein.' }),
+        P('Terrein – anders, namelijk', 20, 0, 1, 3),
+        CH('Ingraven voedingskabel (outdoor)', [['KLIC-melding', 187], ['Vergunning', 188]], { multi: true }),
+        P('Lengte voedingskabel (m)', 20, 2, 1, 0, { suffix: ' M', inputmode: 'decimal' }),
+        R('8.1 Outdoor – opmerkingen', 20, 3, 0, 1),
+        R('8.2 Indoor: door welke ruimtes loopt het tracé en hoe is de toegang daarnaartoe?', 21, 0, 0, 1),
+        JN('8.2 Indoor: voldoende ruimte in de bestaande kabeldoorvoer?', 189, 190),
+        JN('8.2 Indoor: voldoende ruimte in de bestaande goten?', 191, 192),
+        P('8.2 Hoeveel meter goot aanbrengen?', 21, 3, 1, 0, { suffix: ' m', inputmode: 'decimal' }),
+        P('8.2 Type goot', 21, 3, 2, 0, { prefix: 'Type: ' }),
+        P('8.2 Lengte indoor tracé (m)', 21, 4, 1, 0, { suffix: ' m', inputmode: 'decimal', hint: 'Teken de route in op de schets.' }),
+        R('8.2 Indoor – opmerkingen', 21, 6, 0, 1),
+        JN('8.3 Voldoende verlichting?', 193, 194),
+        P('Zo nee: waar moet de verlichting geplaatst worden?', 22, 1, 2),
+        P('Zo nee: waar moet de schakelaar geplaatst worden?', 22, 2, 2, 0, { hint: 'Verlichting intekenen op schets.' }),
+      ] },
+      { title: '9. Aarding / bliksembeveiliging', items: [
+        CH('Type aarding', [['Aluminium', 195], ['Koper', 196], ['Staal', 197]]),
+        P('Aantal aardputten (bij apparatuur op maaiveld, aangeven op schets)', 22 + 1, 1, 1, 0, { inputmode: 'numeric' }),
+        CH('Uitvoering aarding/bliksembeveiligingswerkzaamheden', [['Huisaannemer', 198], ['DAEL', 199]]),
+        P('Zakleidingen – aantal', 23, 3, 1, 0, { prefix: 'Aantal: ', inputmode: 'numeric' }),
+        CH('Opmerkingen aarding/bliksembeveiliging – uitvoering', [['Huisaannemer', 200], ['DAEL', 201]]),
+        P('Huisaannemer aarding – bedrijf', 23, 7, 1), P('Huisaannemer aarding – naam contactpersoon', 23, 6, 1),
+        P('Huisaannemer aarding – e-mail', 23, 8, 1, 0, { inputmode: 'email' }), P('Huisaannemer aarding – telefoonnummer', 23, 9, 1, 0, { inputmode: 'tel' }),
+        R('Huisaannemer aarding – opmerkingen', 23, 10, 0, 1),
+      ] },
+      { title: '10. Antennes', items: [
+        JN('Zijn er vreemde antennes aanwezig?', 202, 203),
+        CH('Zo ja, welke antennes of providers?', [['OLO', 204], ['Niet OLO', 205], ['FM-antennes', 206], ['Niet bekend – opvragen', 207]], { multi: true }),
+        P('Vreemde antennes – namelijk', 24, 1, 2, 0, { prefix: 'Namelijk:  ' }),
+        JN('Kans op te hoge blootstelling aan elektromagnetische velden?', 208, 209),
+        JN('Uitgebreide metingen nodig? (indicatie)', 210, 211),
+        JN('Is er outage nodig? (indicatie)', 212, 213),
+        P('Outage – inschatting hoelang?', 24, 6, 1),
+        R('Opmerkingen (geen andere antennes in de omgeving)', 24, 7, 0, 1),
+      ] },
+      { title: '11–12. Health & Safety Reworks & waarnemingen', items: [
+        JN('Zijn alle veiligheidsmiddelen gekeurd?', 214, 215),
+        P('Veiligheidsmiddelen gekeurd tot wanneer?', 25, 0, 0, 1),
+        P('RI&E tijdens de TSS', 25, 1, 1, 0, { options: ['Groen', 'Geel', 'Oranje', 'Rood'] }),
+        P('Toelichting RI&E (bij Oranje / Rood)', 25, 1, 2, 0, { prefix: 'Toelichting: ' }),
+        JN('Zijn alle veiligheidsmiddelen gekeurd? (tweede vraag in het formulier)', 216, 217),
+        JN('Moet de site vóór uitvoering van dit project aangepast worden?', 218, 219),
+        P('Toelichting aanpassing site', 25, 3, 0, 1),
+        JN('Persoonlijke waarnemingen genoteerd?', 220, 221),
+      ] },
+      { title: "13. Omschrijving Reworks & foto's", items: [
+        R('Omschrijving Reworks', 27, 0, 0, 0, { rows: 6 }),
+        { id: 'photos', type: 'photos', label: "Foto's", photos: { tables: [28, 29, 30, 31], photoRows: [0, 2], captionRows: [1, 3], maxW: 4600, maxH: 4200 },
+          hint: "Komen in de fotovakken op de laatste pagina, met het bijschrift eronder. Bij meer dan 16 foto's worden extra vakken toegevoegd." },
+      ] },
+    ],
+  };
+
+  // ---------- onderaannemers uit het Monet-sjabloon als keuzelijst ----------
+  const SUB_KEYS = ['name', 'visit', 'postal', 'postcode', 'town', 'phone', 'contact', 'contactPhone', 'email', 'supervisor', 'supervisorPhone', 'direct', 'directPhone', 'hs', 'hsPhone'];
+  const setSub = (form, id, fill = {}) => {
+    const f = form.sections.flatMap((sec) => sec.items.flatMap((it) => (it.grid ? it.rows.flatMap((r) => r.fields) : it.group ? it.fields : [it]))).find((x) => x && x.id === id);
+    if (!f) throw new Error('Onbekend veld voor onderaannemer: ' + id);
+    f.sub = { fill };
+  };
+  // Odido: onderaannemers 1–5 en nevenaannemer (kolommen van de contacttabellen)
+  [402, 447].forEach((start) => [0, 1, 2].forEach((k) => {
+    const fill = {};
+    SUB_KEYS.forEach((key, row) => { if (row) fill[`ff${start + row * 3 + k}`] = key; });
+    setSub(odido, `ff${start + k}`, fill);
+  }));
+  seq(0, 7).forEach((k) => setSub(odido, `ff${25 + k * 8}`));
+  seq(0, 24).forEach((k) => setSub(odido, `ff${111 + k * 3}`));
+  // KPN: huisaannemers dakbedekking, elektra en aarding
+  [[6, 10], [18, 1], [22, 5]].forEach(([t, r]) => setSub(kpn, `p${t}_${r + 1}_1_0`, {
+    [`p${t}_${r}_1_0`]: 'contact', [`p${t}_${r + 2}_1_0`]: 'email', [`p${t}_${r + 3}_1_0`]: 'contactPhone' }));
+  // Cellnex: aannemer en huisaannemers
+  setSub(cellnex, 'p3_5_1_0', { p3_0_1_0: 'contact', p3_2_1_0: ['visit', 'postcode', 'town'], p3_3_1_0: 'email', p3_4_1_0: 'contactPhone' });
+  [[19, 1], [23, 6]].forEach(([t, r]) => setSub(cellnex, `p${t}_${r + 1}_1_0`, {
+    [`p${t}_${r}_1_0`]: 'contact', [`p${t}_${r + 2}_1_0`]: 'email', [`p${t}_${r + 3}_1_0`]: 'contactPhone' }));
+
+  window.FORMS = [vfBestaand, vfNieuwbouw, kpn, odido, cellnex];
   window.CLIENTS = [
     { id: 'vodafone', name: 'Vodafone', desc: 'TSS Report 4.20 (Excel)', forms: ['vf-bestaand', 'vf-nieuwbouw'] },
     { id: 'kpn', name: 'KPN', desc: 'RCT rapport – Nieuwbouw daklocatie (Word)', forms: ['kpn-dak'] },
     { id: 'odido', name: 'Odido', desc: 'V&G-plan Monet 6.2.1 – Rooftop (Word)', forms: ['odido-vg'] },
+    { id: 'cellnex', name: 'Cellnex', desc: 'TSSR – Reworks (Word)', forms: ['cellnex-reworks'] },
   ];
 })();

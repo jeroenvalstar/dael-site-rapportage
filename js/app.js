@@ -38,8 +38,10 @@
       if (!dbp) {
         dbp = new Promise((res, rej) => {
           try {
-            const req = indexedDB.open('dael-rapportage', 1);
-            req.onupgradeneeded = () => req.result.createObjectStore('files');
+            const req = indexedDB.open('dael-rapportage', 2);
+            req.onupgradeneeded = () => {
+              if (!req.result.objectStoreNames.contains('files')) req.result.createObjectStore('files');
+            };
             req.onsuccess = () => res(req.result);
             req.onerror = () => rej(req.error);
           } catch (e) {
@@ -155,6 +157,8 @@
           if (f.type === 'date' && r.numeric && /^\d+(\.\d+)?$/.test(val)) val = serialToDate(parseFloat(val));
           v[f.id] = val;
         }
+      } else if (f.type === 'photos') {
+        v[f.id] = [];
       } else if (f.ff != null) {
         v[f.id] = readLegacy(form, doc, f);
       } else if (f.type === 'choice' && f.legacy) {
@@ -209,10 +213,12 @@
     return lines;
   }
 
-  async function writeValues(form, doc, values) {
+  async function writeValues(form, doc, values, ctx = {}) {
     for (const f of allFields(form)) {
       const val = values[f.id];
-      if (form.kind === 'xlsx') {
+      if (f.type === 'photos') {
+        await writePhotos(doc, f, Array.isArray(val) ? val : [], ctx);
+      } else if (form.kind === 'xlsx') {
         if (f.auto) continue;
         if (f.cells) {
           const parts = wrapLines(val, f.cells.length, f.width || 95);
@@ -247,12 +253,37 @@
       } else if (f.p) {
         const cp = doc.cellParas(f.p[0], f.p[1], f.p[2]);
         if (!cp) continue;
-        const para = doc.ensurePara(cp.tc, cp.paras, f.p[3]);
         const s = String(val == null ? '' : val).trim();
+        if (!s && !cp.paras[f.p[3]]) continue;
+        const para = doc.ensurePara(cp.tc, cp.paras, f.p[3]);
+        if (para.getElementsByTagNameNS('http://schemas.microsoft.com/office/word/2010/wordml', 'checkbox').length) {
+          console.warn('Tekstveld wijst naar alinea met selectievakje, overgeslagen:', f.id);
+          continue;
+        }
         let text;
         if (s) text = (f.prefix || '') + s + (f.suffix || '');
         else text = f.ph && PLACEHOLDER.test(f.ph) ? f.ph : ((f.prefix || '') + (f.suffix || '')).trim();
         doc.setParaText(para, text);
+      }
+    }
+  }
+
+  // Foto's in de lege fotovakken plaatsen (bestaande foto's in een geïmporteerd bestand blijven staan)
+  async function writePhotos(doc, f, list, ctx) {
+    const items = [];
+    for (const ph of list) {
+      const blob = ctx.getPhoto ? await ctx.getPhoto(ph.pid) : null;
+      if (blob) items.push({ ph, blob });
+    }
+    if (!items.length) return;
+    const slots = doc.photoSlots(f.photos, items.length);
+    for (let i = 0; i < items.length && i < slots.length; i++) {
+      const { ph, blob } = items[i];
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      await doc.putImage(slots[i].tc, bytes, ph.w, ph.h, f.photos.maxW, f.photos.maxH, i + 1);
+      if (slots[i].cap) {
+        const p = slots[i].cap.getElementsByTagNameNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'p')[0];
+        if (p) doc.setParaText(p, ph.caption || '');
       }
     }
   }
@@ -264,7 +295,7 @@
     if (draft.hasBase) base = await idb.get('base:' + draft.id);
     const buf = base || (await loadTemplate(form));
     const doc = await openDoc(form, buf);
-    await writeValues(form, doc, draft.values);
+    await writeValues(form, doc, draft.values, { getPhoto: (pid) => idb.get(`photo:${draft.id}:${pid}`) });
     if (doc.updateRefs && doc.refs && doc.refs.length) await doc.updateRefs();
     const blob = await doc.toBlob();
     return { blob, name: sanitizeName(form.fileName(draft.values)) };
@@ -549,6 +580,12 @@
     if (f.type === 'date') {
       return `<input type="date" id="${id}" data-f="${f.id}" data-date="1" value="${esc(toIsoDate(v))}">`;
     }
+    if (f.type === 'photos') return photosControl(f, v);
+    if (f.sub) {
+      const listId = 'dl_' + f.id;
+      const names = (window.SUBCONTRACTORS || []).map((x) => x.name);
+      return `<input type="text" id="${id}" data-f="${f.id}" data-sub="1" list="${listId}" value="${esc(v)}" autocomplete="off" placeholder="Kies onderaannemer of typ…"><datalist id="${listId}">${names.map((o) => `<option value="${esc(o)}">`).join('')}</datalist>`;
+    }
     const opts = optionsFor(f);
     if (opts && chipMode(opts) && !compact) {
       const extra = v && !opts.includes(v) ? [v] : [];
@@ -565,6 +602,116 @@
     const im = f.inputmode ? ` inputmode="${f.inputmode}"` : '';
     const type = f.inputmode === 'email' ? 'email' : f.inputmode === 'tel' ? 'tel' : 'text';
     return `<input type="${type}" id="${id}" data-f="${f.id}" value="${esc(v)}"${im} autocomplete="off">`;
+  }
+
+  function photosControl(f, v) {
+    const list = Array.isArray(v) ? v : [];
+    return `<div class="photos">
+      ${list.map((ph, i) => `<figure class="photo" data-pid="${esc(ph.pid)}">
+        <div class="photo-img"><img alt="Foto ${i + 1}" data-photo="${esc(ph.pid)}"><span class="photo-nr">${i + 1}</span></div>
+        <input type="text" data-photo-cap="${f.id}" data-pid="${esc(ph.pid)}" value="${esc(ph.caption || '')}" placeholder="Bijschrift (optioneel)" aria-label="Bijschrift foto ${i + 1}">
+        <div class="photo-actions">
+          <button type="button" class="icon-btn small" data-photo-move="${f.id}" data-pid="${esc(ph.pid)}" data-dir="-1" aria-label="Foto naar voren" ${i ? '' : 'disabled'}>${ICON.back}</button>
+          <button type="button" class="icon-btn small" data-photo-move="${f.id}" data-pid="${esc(ph.pid)}" data-dir="1" aria-label="Foto naar achteren" ${i < list.length - 1 ? '' : 'disabled'}>${ICON.arrow}</button>
+          <button type="button" class="icon-btn small danger" data-photo-del="${f.id}" data-pid="${esc(ph.pid)}" aria-label="Foto verwijderen">${ICON.trash}</button>
+        </div>
+      </figure>`).join('')}
+      <label class="photo-add">
+        <input type="file" accept="image/*" multiple data-photo-add="${f.id}" hidden>
+        <span class="dz-icon">${ICON.upload}</span>
+        <span><strong>Foto's toevoegen</strong><br><span class="muted">Maak een foto of kies uit je bibliotheek</span></span>
+      </label>
+    </div>`;
+  }
+
+  // Verkleint foto's (max. 1600 px) zodat het Word-bestand mailbaar blijft
+  async function resizePhoto(file, max = 1600) {
+    let src;
+    try {
+      src = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch (e) {
+      src = await new Promise((res, rej) => {
+        const img = new Image();
+        img.onload = () => res(img);
+        img.onerror = () => rej(new Error('Afbeelding kon niet gelezen worden.'));
+        img.src = URL.createObjectURL(file);
+      });
+    }
+    const w0 = src.width;
+    const h0 = src.height;
+    const scale = Math.min(1, max / Math.max(w0, h0));
+    const w = Math.round(w0 * scale);
+    const h = Math.round(h0 * scale);
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext('2d').drawImage(src, 0, 0, w, h);
+    const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.82));
+    return { blob, w, h };
+  }
+
+  const photoUrls = {};
+  async function hydratePhotos() {
+    const d = state.draft;
+    for (const img of app.querySelectorAll('img[data-photo]')) {
+      const pid = img.dataset.photo;
+      if (!photoUrls[pid]) {
+        const blob = await idb.get(`photo:${d.id}:${pid}`);
+        if (blob) photoUrls[pid] = URL.createObjectURL(blob);
+      }
+      if (photoUrls[pid]) img.src = photoUrls[pid];
+      else img.closest('.photo-img').classList.add('missing');
+    }
+  }
+
+  function rerenderKeepScroll() {
+    const y = window.scrollY;
+    renderForm();
+    window.scrollTo({ top: y });
+  }
+
+  async function addPhotos(fieldId, files) {
+    const d = state.draft;
+    const list = Array.isArray(d.values[fieldId]) ? d.values[fieldId].slice() : [];
+    busy(true, "Foto's verwerken…");
+    let failed = 0;
+    try {
+      for (const file of files) {
+        try {
+          const { blob, w, h } = await resizePhoto(file);
+          const pid = newId();
+          await idb.put(`photo:${d.id}:${pid}`, blob);
+          if (!(await idb.get(`photo:${d.id}:${pid}`))) throw new Error('opslaan mislukt');
+          list.push({ pid, caption: '', w, h });
+        } catch (e) {
+          console.error(e);
+          failed++;
+        }
+      }
+    } finally {
+      busy(false);
+    }
+    setValue(fieldId, list);
+    saveDrafts();
+    rerenderKeepScroll();
+    if (failed) toast(`${failed} foto('s) konden niet worden toegevoegd.`, 'warn');
+  }
+
+  function applySubcontractor(fieldId, name) {
+    const d = state.draft;
+    const form = formById(d.formId);
+    const f = prepared[form.id].fields.find((x) => x.id === fieldId);
+    const sub = (window.SUBCONTRACTORS || []).find((x) => x.name.toLowerCase() === String(name).trim().toLowerCase());
+    if (!f || !f.sub || !sub || !Object.keys(f.sub.fill).length) return;
+    for (const [target, key] of Object.entries(f.sub.fill)) {
+      const val = Array.isArray(key) ? key.map((k) => sub[k]).filter(Boolean).join(', ') : sub[key] || '';
+      d.values[target] = val;
+    }
+    d.values[fieldId] = sub.name;
+    d.updated = Date.now();
+    saveDrafts();
+    rerenderKeepScroll();
+    toast(`Gegevens van ${sub.name} ingevuld.`);
   }
 
   function fieldBlock(f, values) {
@@ -650,6 +797,7 @@
       </main>
     </div>`;
 
+    hydratePhotos();
     if (state.focus) {
       const el = document.getElementById('blk_' + state.focus) || document.getElementById('grow_' + state.focus);
       const inp = document.getElementById('f_' + state.focus);
@@ -710,11 +858,26 @@
 
   app.addEventListener('input', (e) => {
     const el = e.target;
+    if (el.dataset.photoCap) {
+      const d = state.draft;
+      const list = (d.values[el.dataset.photoCap] || []).map((ph) => (ph.pid === el.dataset.pid ? { ...ph, caption: el.value } : ph));
+      setValue(el.dataset.photoCap, list);
+      return;
+    }
     if (!el.dataset.f || el.type === 'checkbox') return;
     setValue(el.dataset.f, el.dataset.date ? fromIsoDate(el.value) : el.value);
   });
   app.addEventListener('change', (e) => {
     const el = e.target;
+    if (el.dataset.photoAdd) {
+      if (el.files && el.files.length) addPhotos(el.dataset.photoAdd, Array.from(el.files));
+      return;
+    }
+    if (el.dataset.sub) {
+      setValue(el.dataset.f, el.value);
+      applySubcontractor(el.dataset.f, el.value);
+      return;
+    }
     if (el.dataset.f) {
       if (el.type === 'checkbox') {
         setValue(el.dataset.f, el.checked);
@@ -761,6 +924,27 @@
       }
       return;
     }
+    const pbtn = e.target.closest('[data-photo-del],[data-photo-move]');
+    if (pbtn) {
+      const d = state.draft;
+      const fid = pbtn.dataset.photoDel || pbtn.dataset.photoMove;
+      let list = (d.values[fid] || []).slice();
+      const i = list.findIndex((ph) => ph.pid === pbtn.dataset.pid);
+      if (i < 0) return;
+      if (pbtn.dataset.photoDel) {
+        if (!confirm('Deze foto verwijderen?')) return;
+        idb.del(`photo:${d.id}:${list[i].pid}`);
+        list.splice(i, 1);
+      } else {
+        const j = i + parseInt(pbtn.dataset.dir, 10);
+        if (j < 0 || j >= list.length) return;
+        [list[i], list[j]] = [list[j], list[i]];
+      }
+      setValue(fid, list);
+      saveDrafts();
+      rerenderKeepScroll();
+      return;
+    }
     const btn = e.target.closest('[data-act]');
     if (!btn || btn.tagName === 'SELECT') return;
     const act = btn.dataset.act;
@@ -802,6 +986,9 @@
     drafts = drafts.filter((x) => x.id !== id);
     saveDrafts();
     idb.del('base:' + id);
+    for (const f of allFields(formById(d.formId))) {
+      if (f.type === 'photos') (d.values[f.id] || []).forEach((ph) => idb.del(`photo:${id}:${ph.pid}`));
+    }
     renderHome();
   }
 

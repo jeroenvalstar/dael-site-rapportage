@@ -5,6 +5,10 @@ Webapp om op locatie de rapportages voor opdrachtgevers in te vullen:
 - **Vodafone** – TSS Report 4.20 (Excel), tabblad *bestaande site* of *nieuwbouw site*
 - **KPN** – RCT rapport Nieuwbouw daklocatie (Word)
 - **Odido** – V&G-plan Monet 6.2.1 (ENG), No Subco, Rooftop (Word met klassieke formuliervelden)
+- **Cellnex** – TSSR Reworks (Word), inclusief foto's op de laatste pagina
+
+Waar een formulier om een (onder)aannemer vraagt, kun je kiezen uit de onderaannemers van het Monet-sjabloon
+(`js/onderaannemers.js`); de bijbehorende adres- en contactgegevens worden dan automatisch ingevuld.
 
 ## Werking
 
@@ -28,6 +32,7 @@ keuzelijsten en beveiliging blijven intact. Er wordt niets naar een server gestu
 | `js/forms.js` | Vragenlijsten en de koppeling van elke vraag naar cel (Excel) of tabelcel/selectievakje (Word) |
 | `js/ooxml.js` | Lezen/schrijven van .xlsx en .docx |
 | `js/vf-data.js` | Keuzelijsten uit het Vodafone-sjabloon (automatisch gegenereerd) |
+| `js/onderaannemers.js` | Onderaannemers met contactgegevens (uit het Monet-sjabloon) |
 | `templates/` | De originele lege formulieren |
 | `sw.js` | Offline-cache |
 

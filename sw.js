@@ -1,11 +1,12 @@
 // Offline-cache zodat de app ook werkt op locaties met slecht bereik
-const CACHE = 'dael-rapportage-v2';
+const CACHE = 'dael-rapportage-v3';
 const ASSETS = [
   './',
   'index.html',
   'css/app.css',
   'js/ooxml.js',
   'js/vf-data.js',
+  'js/onderaannemers.js',
   'js/forms.js',
   'js/app.js',
   'img/icon.svg',
@@ -13,6 +14,7 @@ const ASSETS = [
   'templates/vodafone-tss-4.20.xlsx',
   'templates/kpn-rct-nieuwbouw-daklocatie.docx',
   'templates/odido-vg-plan-monet-6.2.1-rooftop.docx',
+  'templates/cellnex-tssr-reworks.docx',
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
 ];
 
