@@ -1153,7 +1153,16 @@
   window.DAEL = { prepare, readValues, writeValues, buildFile, openDoc, loadTemplate, allFields };
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => reg.update()).catch(() => {});
+    // Nieuwe versie actief: pagina één keer herladen zodat iedereen meteen de nieuwste app heeft
+    let reloaded = false;
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController && !reloaded) {
+        reloaded = true;
+        window.location.reload();
+      }
+    });
   }
 
   render();

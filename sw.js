@@ -1,5 +1,5 @@
 // Offline-cache zodat de app ook werkt op locaties met slecht bereik
-const CACHE = 'dael-rapportage-v3';
+const CACHE = 'dael-rapportage-v4';
 const ASSETS = [
   './',
   'index.html',
@@ -33,8 +33,10 @@ self.addEventListener('activate', (e) => {
 // Eerst netwerk (altijd de nieuwste versie), bij geen verbinding de cache
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  // Altijd bij de server controleren op een nieuwere versie (niet uit de browsercache)
+  const sameOrigin = e.request.url.startsWith(self.location.origin);
   e.respondWith(
-    fetch(e.request)
+    fetch(sameOrigin ? new Request(e.request, { cache: 'no-cache' }) : e.request)
       .then((res) => {
         if (res.ok && (e.request.url.startsWith(self.location.origin) || e.request.url.includes('cdnjs'))) {
           const copy = res.clone();

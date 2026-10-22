@@ -40,7 +40,7 @@ keuzelijsten en beveiliging blijven intact. Er wordt niets naar een server gestu
 
 Vervang het bestand in `templates/` (zelfde bestandsnaam) en controleer in `js/forms.js` of de celverwijzingen
 (Excel) of tabel/rij/cel-nummers en selectievakje-nummers (Word) nog kloppen. Bij het Odido V&G-plan zijn de
-formuliervelden genummerd in documentvolgorde (0 = eerste veld). Oude .doc-bestanden eerst in Word opslaan als .docx. Verhoog daarna `CACHE` in `sw.js`.
+formuliervelden genummerd in documentvolgorde (0 = eerste veld). Oude .doc-bestanden eerst in Word opslaan als .docx. Verhoog daarna `CACHE` in `sw.js` en het versienummer (`?v=`) in `index.html`.
 
 ## Lokaal draaien
 
